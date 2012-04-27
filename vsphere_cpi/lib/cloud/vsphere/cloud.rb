@@ -60,7 +60,7 @@ module VSphereCloud
       at_exit { @client.logout }
     end
 
-    def create_stemcell(image, _)
+    def create_stemcell(image, properties={})
       with_thread_name("create_stemcell(#{image}, _)") do
         result = nil
         Dir.mktmpdir do |temp_dir|
@@ -79,7 +79,7 @@ module VSphereCloud
           cluster, datastore = @resources.get_resources
           @logger.info("Deploying to: #{cluster.mob} / #{datastore.mob}")
 
-          import_spec_result = import_ovf(name, ovf_file, cluster.resource_pool, datastore.mob)
+          import_spec_result = import_ovf(name, ovf_file, cluster, datastore.mob, properties)
           lease = obtain_nfc_lease(cluster.resource_pool, import_spec_result.import_spec,
                                    cluster.datacenter.template_folder)
           @logger.info("Waiting for NFC lease")
@@ -976,17 +976,26 @@ module VSphereCloud
       end
     end
 
-    def import_ovf(name, ovf, resource_pool, datastore)
+
+    def import_ovf(name, ovf, cluster, datastore, properties)
+      if network_name = properties["network"]
+        network_mob = client.find_by_inventory_path([cluster.datacenter.name, "network", network_name])
+        network_mapping = Vim::OvfManager::NetworkMapping.new
+        network_mapping.name = network_name
+        network_mapping.network = network_mob
+      end
+
       import_spec_params = Vim::OvfManager::CreateImportSpecParams.new
       import_spec_params.entity_name = name
       import_spec_params.locale = 'US'
       import_spec_params.deployment_option = ''
+      import_spec_params.network_mapping = network_mapping
 
       ovf_file = File.open(ovf)
       ovf_descriptor = ovf_file.read
       ovf_file.close
 
-      @client.service_content.ovf_manager.create_import_spec(ovf_descriptor, resource_pool,
+      @client.service_content.ovf_manager.create_import_spec(ovf_descriptor, cluster.resource_pool,
                                                              datastore, import_spec_params)
     end
 
