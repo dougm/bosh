@@ -80,6 +80,9 @@ module VSphereCloud
           @logger.info("Deploying to: #{cluster.mob} / #{datastore.mob}")
 
           import_spec_result = import_ovf(name, ovf_file, cluster.resource_pool, datastore.mob)
+          unless import_spec_result.import_spec
+            raise "Failed to create OVF import spec: #{import_spec_result.error}"
+          end
           lease = obtain_nfc_lease(cluster.resource_pool, import_spec_result.import_spec,
                                    cluster.datacenter.template_folder)
           @logger.info("Waiting for NFC lease")
@@ -983,10 +986,16 @@ module VSphereCloud
       import_spec_params.deployment_option = ''
 
       ovf_file = File.open(ovf)
-      ovf_descriptor = ovf_file.read
+      ovf_descriptor = Nokogiri::XML(ovf_file.read)
+      ovf_descriptor.search('NetworkSection').remove
+      ovf_descriptor.search('Item').each do |item|
+        if item.children.select { |i| i.name == "ElementName" }.first.text == "ethernet0"
+          item.remove
+        end
+      end
       ovf_file.close
 
-      @client.service_content.ovf_manager.create_import_spec(ovf_descriptor, resource_pool,
+      @client.service_content.ovf_manager.create_import_spec(ovf_descriptor.to_s, resource_pool,
                                                              datastore, import_spec_params)
     end
 
